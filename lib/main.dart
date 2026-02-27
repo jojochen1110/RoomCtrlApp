@@ -3,6 +3,76 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 
+double ensureDouble(dynamic value) {
+  if (value == null) return 0.0;
+  if (value is double) return value;
+  if (value is int) return value.toDouble(); // int 有 toDouble()
+  if (value is String) return double.tryParse(value) ?? 0.0;
+  return 0.0;
+}
+
+// 記錄目前畫面上所有的錯誤橫幅，以便計算疊加高度
+List<OverlayEntry> _errorOverlays = [];
+
+void showErrorBanner(BuildContext context, String errorCode) {
+  late OverlayEntry overlayEntry;
+
+  // 計算這一個橫幅應該出現在多高的地方 (每個橫幅高度約 50)
+  double topOffset = 80.0 + (_errorOverlays.length * 55.0);
+
+  overlayEntry = OverlayEntry(
+    builder: (context) => Positioned(
+      top: topOffset,
+      left: 10,
+      right: 10,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [const BoxShadow(color: Colors.black26, blurRadius: 10)],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  errorCode,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                onPressed: () {
+                  overlayEntry.remove();
+                  _errorOverlays.remove(overlayEntry);
+                  // 注意：這裡為了簡單未重新計算剩餘橫幅位置
+                  // 若要完美重排，需要用到帶有動畫的清單
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  // 插入到畫面上
+  Overlay.of(context).insert(overlayEntry);
+  _errorOverlays.add(overlayEntry);
+
+  // 可選：設定 5 秒後自動消失
+  Future.delayed(const Duration(seconds: 5), () {
+    if (_errorOverlays.contains(overlayEntry)) {
+      overlayEntry.remove();
+      _errorOverlays.remove(overlayEntry);
+    }
+  });
+}
+
 class SensorCard extends StatelessWidget {
   final String type; // 'temp', 'humidity', 'light', 'co'
   final double value;
@@ -50,11 +120,11 @@ class SensorCard extends StatelessWidget {
         if (t < 0.5) {
           // 前半段：藍色 (16°C) -> 橙色 (23°C)
           // 將 0.0~0.5 的 t 映射到 0.0~1.0
-          tempColor = Color.lerp(Colors.blue, Colors.orange, t.clamp(0, 0.5) * 2)!;
+          tempColor = Color.lerp(Colors.blue[300], Colors.orange[300], t.clamp(0, 0.5) * 2)!;
         } else {
           // 後半段：橙色 (23°C) -> 紅色 (30°C)
           // 將 0.5~1.0 的 t 映射到 0.0~1.0
-          tempColor = Color.lerp(Colors.orange, Colors.red, (t.clamp(0.5, 1)-0.5) * 2)!;
+          tempColor = Color.lerp(Colors.orange[300], Colors.red[400], (t.clamp(0.5, 1)-0.5) * 2)!;
         }
         return Container(
           width: 60, height: 60,
@@ -71,7 +141,7 @@ class SensorCard extends StatelessWidget {
             ClipRect(
               child: Align(
                 alignment: Alignment.bottomCenter,
-                heightFactor: (value / 100).clamp(0, 1),
+                heightFactor: (value / 100).clamp(0.05, 0.95),
                 child: const Icon(Icons.water_drop, size: 60, color: Colors.blue),
               ),
             ),
@@ -88,7 +158,7 @@ class SensorCard extends StatelessWidget {
       case 'CO':
         final double safeValue = value;
         // 計算角度：從 -1.57 (左) 到 1.57 (右)
-        double angle = (safeValue / 100).clamp(0, 1) * 3.14 - 1.57;
+        double angle = (safeValue / 100).clamp(0.03, 0.97) * 3.14 - 1.57;
 
         return Column(
           children: [
@@ -128,7 +198,6 @@ class SensorCard extends StatelessWidget {
                   ),
 
                   // 3. 頂層：順暢旋轉指針
-                  // 我們建立一個 80x80 的透明容器，旋轉中心就在正中間
                   Transform.rotate(
                     angle: angle,
                     alignment: Alignment.bottomCenter, // 完美的旋轉點
@@ -201,7 +270,6 @@ class _ControlSectionState extends State<ControlSection> {
   final TextEditingController _tempController = TextEditingController(text: "26.0");
 
   // 空調模式切換 (使用 Set 因為 SegmentedButton 支援多選，但我們設為單選)
-  Set<String> _acMode = {'off'};
 
   @override
   Widget build(BuildContext context) {
@@ -218,11 +286,15 @@ class _ControlSectionState extends State<ControlSection> {
             // --- 燈光控制 ---
             _buildSliderRow("Light", _lightValue, 0, 100, (val) {
               setState(() => _lightValue = val);
+            }, (val) {
+              sendHttpRequest("light", val);
             }, Icons.lightbulb),
 
             // --- 風扇控制 ---
-            _buildSliderRow("Fan", _fanValue, 0, 10, (val) {
+            _buildSliderRow("Fan", _fanValue, 0, 3, (val) {
               setState(() => _fanValue = val);
+            }, (val) {
+              sendHttpRequest("fan", val);
             }, Icons.air),
 
             const SizedBox(height: 20),
@@ -244,6 +316,9 @@ class _ControlSectionState extends State<ControlSection> {
                         _tempController.text = val.toStringAsFixed(1);
                       });
                     },
+                    onChangeEnd: (val) {
+                      sendHttpRequest("target_temp", val);
+                    }
                   ),
                 ),
                 SizedBox(
@@ -255,16 +330,12 @@ class _ControlSectionState extends State<ControlSection> {
                     onSubmitted: (String value) {
                       double? newValue = double.tryParse(value);
                       if (newValue != null){
-                          if (newValue >= 16 && newValue <= 30) {
-                          setState(() {
-                            _tempValue = ((newValue ?? 0.0) * 2).round() / 2; // 修正為最接近的 0.5
-                            _tempController.text = _tempValue.toStringAsFixed(1);
-                          });
-                        }else if (newValue < 16){
-                          newValue = 16;
-                        }else if (newValue > 30){
-                          newValue = 30;
-                        }
+                        setState(() {
+                          double inRangeval = newValue.clamp(16, 30);
+                          _tempValue = ((inRangeval) * 2).round() / 2; // 修正為最接近的 0.5
+                          _tempController.text = _tempValue.toStringAsFixed(1);
+                        });
+                        sendHttpRequest("target_temp", newValue);
                       }
                     },
                   ),
@@ -280,7 +351,7 @@ class _ControlSectionState extends State<ControlSection> {
 
 
   // 輔助函式：建立滑塊列
-  Widget _buildSliderRow(String label, double value, double min, double max, Function(double) onChanged, IconData icon) {
+  Widget _buildSliderRow(String label, double value, double min, double max, Function(double) onChanged, Function(double) onChangeEnd, IconData icon) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -298,9 +369,29 @@ class _ControlSectionState extends State<ControlSection> {
           min: min,
           max: max,
           onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
         ),
       ],
     );
+  }
+
+  Future<void> sendHttpRequest(String item, double value)async{
+    try {
+      // 假設你的 Flask API 路徑是 /update
+      final response = await http.post(
+        Uri.parse('http://192.168.176.252:5000/"device_state"'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "device": item,
+          "value": value,
+        }),
+      ).timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) {
+        showErrorBanner(context, "updata faild: ${response.body}");
+      }
+    } catch (e) {
+      showErrorBanner(context, "Network error: $e");
+    }
   }
 }//       ControlSection
 
@@ -427,18 +518,19 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   // 2. 抓取 Flask 數據的函式
   Future<void> _refreshData() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.165.252:5000/sensors'));
+      final response = await http.get(Uri.parse('http://192.168.176.252:5000/sensors'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
           // 將 JSON 數據填入變數
-          _temp = data['temperature'].toDouble();
-          _humidity = data['humidity'].toDouble();
-          _light = data['light_level'].toDouble();
-          _coLevel = data['co_ppm'].toDouble();
+          _temp = ensureDouble(data['temperature']).toDouble();
+          _humidity = ensureDouble(data['humidity']).toDouble();
+          _light = ensureDouble(data['light_level']).toDouble();
+          _coLevel = ensureDouble(data['co_ppm']).toDouble();
         });
       }
     } catch (e) {
+      showErrorBanner(context, "Network error: $e");
     }
   }
 
@@ -447,7 +539,7 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   void initState() {
     super.initState();
     _refreshData(); // 初始抓取一次
-    Timer.periodic(const Duration(seconds: 2), (timer) => _refreshData());
+    Timer.periodic(const Duration(seconds: 10), (timer) => _refreshData());
   }
 
   @override
