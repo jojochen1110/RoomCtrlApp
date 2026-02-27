@@ -248,7 +248,7 @@ class SensorCard extends StatelessWidget {
 
   String _getValueText() {
     if (type == 'temp') return ""; // 溫度已寫在圓圈內
-    return "${value.toStringAsFixed(1)}${type == 'humidity' ? '%' : ''}";
+    return "${value.toStringAsFixed(1)}${type == 'humidity' ? ' %' : type == 'CO' ? ' ppm' : ''}";
   }
 }//       SensorCard
 
@@ -263,13 +263,12 @@ class ControlSection extends StatefulWidget {
 class _ControlSectionState extends State<ControlSection> {
   // 設備狀態變數
   double _lightValue = 50.0;
-  double _fanValue = 3.0;
+  double _fanValue = 0;
   double _tempValue = 26.0;
+  double _acOn = 0;
 
   // 溫度輸入框的控制項
   final TextEditingController _tempController = TextEditingController(text: "26.0");
-
-  // 空調模式切換 (使用 Set 因為 SegmentedButton 支援多選，但我們設為單選)
 
   @override
   Widget build(BuildContext context) {
@@ -287,15 +286,28 @@ class _ControlSectionState extends State<ControlSection> {
             _buildSliderRow("Light", _lightValue, 0, 100, (val) {
               setState(() => _lightValue = val);
             }, (val) {
-              sendHttpRequest("light", val);
+              sendHttpRequest("target_brightness", val);
             }, Icons.lightbulb),
 
             // --- 風扇控制 ---
-            _buildSliderRow("Fan", _fanValue, 0, 3, (val) {
-              setState(() => _fanValue = val);
-            }, (val) {
-              sendHttpRequest("fan", val);
-            }, Icons.air),
+            const Text("Fan", style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<double>(
+                segments: const [
+                  ButtonSegment(value: 0, label: Text('off')),
+                  ButtonSegment(value: 1, label: Text('1')),
+                  ButtonSegment(value: 2, label: Text('2')),
+                  ButtonSegment(value: 3, label: Text('3')),
+                ],
+                selected: {_fanValue},
+                onSelectionChanged: (newSelection) {
+                  setState(() => _fanValue = newSelection.first);
+                  sendHttpRequest("fan", _fanValue);
+                },
+              ),
+            ),
 
             const SizedBox(height: 20),
 
@@ -342,6 +354,23 @@ class _ControlSectionState extends State<ControlSection> {
                 ),
               ],
             ),
+            // --- 空調模式 (開關) ---
+            const Text("Air Conditioner", style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<double>(
+                segments: const [
+                  ButtonSegment(value: 0, label: Text('off')),
+                  ButtonSegment(value: 1, label: Text('on')),
+                ],
+                selected: {_acOn},
+                onSelectionChanged: (newSelection) {
+                  setState(() => _acOn = newSelection.first);
+                  sendHttpRequest("ac", _acOn);
+                },
+              ),
+            ),
           ],
         ),
       ),
@@ -377,13 +406,11 @@ class _ControlSectionState extends State<ControlSection> {
 
   Future<void> sendHttpRequest(String item, double value)async{
     try {
-      // 假設你的 Flask API 路徑是 /update
       final response = await http.post(
-        Uri.parse('http://192.168.176.252:5000/"device_state"'),
+        Uri.parse('http://192.168.176.252:5000/device_state/$item'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "device": item,
-          "value": value,
+          "value": value
         }),
       ).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) {
@@ -515,6 +542,8 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   double _light = 100;
   double _coLevel = 50;
 
+  List<String> _alarms = []; // 儲存警報訊息的清單
+
   // 2. 抓取 Flask 數據的函式
   Future<void> _refreshData() async {
     try {
@@ -527,6 +556,9 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
           _humidity = ensureDouble(data['humidity']).toDouble();
           _light = ensureDouble(data['light_level']).toDouble();
           _coLevel = ensureDouble(data['co_ppm']).toDouble();
+          if (_coLevel >= 60){
+            addAlarm("Warning : Excessive carbon monoxide");
+          }
         });
       }
     } catch (e) {
@@ -542,100 +574,109 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
     Timer.periodic(const Duration(seconds: 10), (timer) => _refreshData());
   }
 
+  // 增加警報的 Function
+  void addAlarm(String message) {
+    if (!_alarms.contains(message)) {
+      setState(() {
+        _alarms.insert(0, message); // 新警報放在最上面
+      });
+    }
+  }
+  // 移除警報的 Function
+  void removeAlarm(String message) {
+    setState(() {
+      _alarms.remove(message);
+    });
+  }
+  Widget _buildAlarmSection() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: _alarms.map((msg) => _buildSingleAlarm(msg)).toList(),
+    );
+  }
+
+  Widget _buildSingleAlarm(String message) {
+    return TweenAnimationBuilder<Offset>(
+      duration: const Duration(milliseconds: 400),
+      tween: Tween(begin: const Offset(0, -1), end: const Offset(0, 0)),
+      curve: Curves.easeOutBack,
+      builder: (context, offset, child) {
+        return FractionalTranslation(
+          translation: offset,
+          child: Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 2), // 橫幅間的小間隔
+            color: Colors.red.shade700,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => removeAlarm(message),
+                  child: const Icon(Icons.close, color: Colors.white, size: 20),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Office Control Panel")),
-      body: SingleChildScrollView( // that it could Scroll
-        child: Column(
-          children: [
-            // e. Warning area (on top of the screen)
-            if (hasAlarm)
-              Container(
-                width: double.infinity,
-                color: Colors.red,
-                padding: const EdgeInsets.all(12),
-                child: const Text("Warning：Excessive carbon monoxide!",
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-
-            // a. data card
-            Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Wrap( // 自動換行的布局
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  SensorCard(type: "temp", value: _temp, themeColor: Colors.orange),
-                  SensorCard(type: "humidity", value: _humidity, themeColor: Colors.blue),
-                  SensorCard(type: "light", value: _light, themeColor: Colors.yellow),
-                  SensorCard(type: "CO", value: _coLevel, themeColor: Colors.black38),
-                ],
-              ),
-            ),
-
-
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Slider(
-                    value: _temp,
-                    min: 16,
-                    max: 30,
-                    onChanged: (newValue) {
-                      setState(() {
-                        _temp = newValue; // 當滑桿移動，更新變數並重繪 UI
-                      });
-                    },
-                  ),Slider(
-                    value: _humidity,
-                    min: 0,
-                    max: 100,
-                    onChanged: (newValue) {
-                      setState(() {
-                        _humidity = newValue; // 當滑桿移動，更新變數並重繪 UI
-                      });
-                    },
-                  ),Slider(
-                    value: _light,
-                    min: 0,
-                    max: 100,
-                    onChanged: (newValue) {
-                      setState(() {
-                        _light = newValue; // 當滑桿移動，更新變數並重繪 UI
-                      });
-                    },
-                  ),Slider(
-                    value: _coLevel,
-                    min: 0,
-                    max: 100,
-                    onChanged: (newValue) {
-                      setState(() {
-                        _coLevel = newValue; // 當滑桿移動，更新變數並重繪 UI
-                      });
-                    },
+      body: Stack(
+        children: [
+          SingleChildScrollView( // that it could Scroll
+            child: Column(
+              children: [
+                // a. data card
+                Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Wrap( // 自動換行的布局
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      SensorCard(type: "temp", value: _temp, themeColor: Colors.orange),
+                      SensorCard(type: "humidity", value: _humidity, themeColor: Colors.blue),
+                      SensorCard(type: "light", value: _light, themeColor: Colors.yellow),
+                      SensorCard(type: "CO", value: _coLevel, themeColor: Colors.black38),
+                    ],
                   ),
-                ],
-              ),
+                ),
+
+                // b. Control Section
+                const ControlSection(title: "Control Panel"),
+
+                // c. Room Status
+                const RoomStatusCard(),
+
+                // d. Scheduling and Settings
+                ListTile(
+                  leading: const Icon(Icons.calendar_month),
+                  title: const Text("Scheduling"),
+                  trailing: const Badge(label: Text("3")), // message hadn't read
+                  onTap: () {/* into Scheduling page */},
+                ),
+              ],
             ),
-
-
-            // b. Control Section
-            const ControlSection(title: "Control Panel"),
-
-            // c. Room Status
-            const RoomStatusCard(),
-
-            // d. Scheduling and Settings
-            ListTile(
-              leading: const Icon(Icons.calendar_month),
-              title: const Text("Scheduling"),
-              trailing: const Badge(label: Text("3")), // message hadn't read
-              onTap: () {/* into Scheduling page */},
-            ),
-          ],
-        ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildAlarmSection(),
+          ),
+        ],
       ),
     );
   }
