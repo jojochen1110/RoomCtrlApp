@@ -320,7 +320,7 @@ class _ControlSectionState extends State<ControlSection> {
                     value: _tempValue,
                     min: 16,
                     max: 30,
-                    divisions: 28, // (30-16) * 2 = 28 個刻度，達成 0.5 單位
+                    divisions: 14, // (30-16) * 2 = 28 個刻度，達成 0.5 單位
                     label: _tempValue.toString(),
                     onChanged: (val) {
                       setState(() {
@@ -343,8 +343,7 @@ class _ControlSectionState extends State<ControlSection> {
                       double? newValue = double.tryParse(value);
                       if (newValue != null){
                         setState(() {
-                          double inRangeval = newValue.clamp(16, 30);
-                          _tempValue = ((inRangeval) * 2).round() / 2; // 修正為最接近的 0.5
+                          _tempValue = newValue.clamp(16, 30).round().toDouble();
                           _tempController.text = _tempValue.toStringAsFixed(1);
                         });
                         sendHttpRequest("target_temp", newValue);
@@ -407,10 +406,10 @@ class _ControlSectionState extends State<ControlSection> {
   Future<void> sendHttpRequest(String item, double value)async{
     try {
       final response = await http.post(
-        Uri.parse('http://192.168.176.252:5000/device_state/$item'),
+        Uri.parse('http://techconnect.local:5000/device_state/$item'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          "value": value
+          item: value
         }),
       ).timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) {
@@ -547,7 +546,7 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   // 2. 抓取 Flask 數據的函式
   Future<void> _refreshData() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.176.252:5000/sensors'));
+      final response = await http.get(Uri.parse('http://techconnect.local:5000/sensors'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -571,7 +570,7 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   void initState() {
     super.initState();
     _refreshData(); // 初始抓取一次
-    Timer.periodic(const Duration(seconds: 10), (timer) => _refreshData());
+    Timer.periodic(const Duration(seconds: 5), (timer) => _refreshData());
   }
 
   // 增加警報的 Function
