@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import './tool.dart';
+import './setting_screen.dart';
 
 
 double _ensureDouble(dynamic value) {
@@ -224,6 +225,24 @@ class _ControlSectionState extends State<ControlSection> {
             }, (val) {
               HttpRequest.send("target_brightness", val);
             }, Icons.lightbulb),
+
+            // --- 燈光開關 ---
+            const Text("Light Switch", style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<double>(
+                segments: const [
+                  ButtonSegment(value: 0, label: Text('off')),
+                  ButtonSegment(value: 1, label: Text('on')),
+                ],
+                selected: {_acOn},
+                onSelectionChanged: (newSelection) {
+                  setState(() => _acOn = newSelection.first);
+                  HttpRequest.send("light_switch", _acOn);
+                },
+              ),
+            ),
 
             // --- 風扇控制 ---
             const Text("Fan", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -453,7 +472,6 @@ class ProfessorConsole extends StatefulWidget {
 }
 
 class _ProfessorConsoleState extends State<ProfessorConsole> {
-  bool hasAlarm = true; // test the warning state
   // 1. 定義數據變數
   double _temp = 30;
   double _humidity = 100;
@@ -519,9 +537,18 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
                 // d. Scheduling and Settings
                 ListTile(
                   leading: const Icon(Icons.calendar_month),
-                  title: const Text("Scheduling"),
+                  title: const Text("ManageAppointments"),
                   trailing: const Badge(label: Text("3")), // message hadn't read
                   onTap: () {/* into Scheduling page */},
+                ),
+                ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text("setting"),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                    );/* into setting page */},
                 ),
               ],
             ),

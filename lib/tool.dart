@@ -124,7 +124,7 @@ class _AlarmVisual extends StatelessWidget {
 //http request
 class HttpRequest {
   // 將重複的 Base URL 抽出，未來如果要換伺服器，只要改這裡就好
-  static const String baseUrl = 'http://techconnect.local:5000';
+  static const String baseUrl = 'http://192.168.13.251:5000';
 
   /// 發送 POST 請求更新設備狀態
   static Future<void> send(String item, dynamic value) async {
@@ -140,6 +140,24 @@ class HttpRequest {
       }
     } catch (e) {
       AlarmService.show("Network error: $e");
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getPresence() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/device_state/presence'),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        AlarmService.show("Failed to load data: ${response.statusCode}");
+        return null;
+      }
+    } catch (e) {
+      AlarmService.show("Network error: $e");
+        return null;
     }
   }
 

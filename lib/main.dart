@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import './professor_console.dart';
+import './student_home.dart';
+import './tool.dart';
+import './user_session.dart';
 
 
 
@@ -23,12 +26,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } else {
       // 登入失敗：彈出警告
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Login failed: Incorrect username or password"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AlarmService.show("Login failed: Incorrect username or password");
     }
   }
 
@@ -42,25 +40,61 @@ class _LoginPageState extends State<LoginPage> {
           children: [
             const Icon(Icons.lock_person, size: 80, color: Colors.blue),
             const SizedBox(height: 20),
-            const Text("Login", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+
+            const Text(
+              "Login",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 30),
+
             TextField(
               controller: _userController,
-              decoration: const InputDecoration(labelText: "account", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                labelText: "account",
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 15),
+
             TextField(
               controller: _passController,
-              obscureText: true, // 密碼遮罩
-              decoration: const InputDecoration(labelText: "password", border: OutlineInputBorder()),
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: "password",
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 30),
+
+            //  Login ボタン
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
                 onPressed: _login,
                 child: const Text("Login"),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            //  Student Home リンク
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const StudentHome(),
+                  ),
+                );
+              },
+              child: const Text(
+                "Student Home",
+                style: TextStyle(
+                  color: Colors.blue,
+                  decoration: TextDecoration.underline,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
@@ -89,4 +123,3 @@ class MyApp extends StatelessWidget {
 void main() {
   runApp(const MyApp());
 }
-
