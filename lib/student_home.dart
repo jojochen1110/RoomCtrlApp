@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import './tool.dart';
-
-
 
 // ===================== HOME SCREEN =====================
 class StudentHome extends StatefulWidget {
@@ -26,14 +25,26 @@ class _StudentHomeState extends State<StudentHome> {
   Future<void> loadPresence() async {
     setState(() => isLoading = true);
 
-    Map<String, dynamic>? data = await HttpRequest.getPresence();
-    if(data != null){
-      setState(() {
-            //  ここはAPIの返却形式により調整
-            professorInOffice =
-                data['presence'] == true ||
-                data['presence'] == 1;
-          });
+    try {
+      final response = await http.get(
+        Uri.parse('http://192.168.13.251:5000/device_state/presence'),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        setState(() {
+          //  ここはAPIの返却形式により調整
+          professorInOffice = data['presence'] == 'available';
+        });
+      } else {
+        throw Exception('Failed to load presence');
+      }
+    } catch (e) {
+      if (mounted) {
+        AlarmService.show('Connection error: $e');
+      }
+    } finally {
       if (mounted) {
         setState(() => isLoading = false);
       }
@@ -44,10 +55,10 @@ class _StudentHomeState extends State<StudentHome> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Student Home'),
+        title: const Text('Student Page'),
         backgroundColor: Colors.grey.shade200, // 薄いグレー
-        foregroundColor: Colors.black,         // 文字・アイコン黒
-        elevation: 0,                          // フラットで今風
+        foregroundColor: Colors.black, // 文字・アイコン黒
+        elevation: 0, // フラットで今風
       ),
       body: Center(
         child: Padding(
@@ -62,18 +73,19 @@ class _StudentHomeState extends State<StudentHome> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 28),
+                    horizontal: 24,
+                    vertical: 28,
+                  ),
                   child: Column(
                     children: [
                       Icon(
-                        professorInOffice
-                          ? Icons.check_circle
-                          : Icons.cancel,
+                        professorInOffice ? Icons.check_circle : Icons.cancel,
                         size: 64,
                         color: professorInOffice
-                          ? Colors.lightGreen   // ← 在室：薄緑
-                          : Colors.red,          // ← 不在：赤
-                        ),
+                            ? Colors
+                                  .lightGreen // ← 在室：薄緑
+                            : Colors.red, // ← 不在：赤
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         professorInOffice
@@ -136,8 +148,7 @@ class AppointmentRequestScreen extends StatefulWidget {
       _AppointmentRequestScreenState();
 }
 
-class _AppointmentRequestScreenState
-    extends State<AppointmentRequestScreen> {
+class _AppointmentRequestScreenState extends State<AppointmentRequestScreen> {
   final _formKey = GlobalKey<FormState>();
 
   final nameController = TextEditingController();
@@ -155,7 +166,7 @@ class _AppointmentRequestScreenState
 
     try {
       final response = await http.post(
-        Uri.parse('http://YOUR_API_BASE_URL/appointments'),
+        Uri.parse('http://192.168.13.251:5000/appointments'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': nameController.text,
@@ -164,32 +175,31 @@ class _AppointmentRequestScreenState
           'time': timeController.text,
           'reason': reasonController.text,
         }),
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Your appointment has been submitted'),
-          ),
-        );
+          NoticeService.show('Your appointment has been submitted');
 
         Navigator.pop(context);
       } else {
         throw Exception('Failed to submit');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      AlarmService.show('Error: $e');
     } finally {
-      setState(() => isSubmitting = false);
+      if (mounted) { // 確保 Widget 還在畫面上
+        setState(() => isSubmitting = false);
+      }
     }
   }
 
-  Widget buildField(String label, TextEditingController controller,
-      {int maxLines = 1}) {
+  Widget buildField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: TextFormField(
@@ -197,9 +207,7 @@ class _AppointmentRequestScreenState
         maxLines: maxLines,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
         validator: (value) =>
             value == null || value.isEmpty ? 'Required' : null,
@@ -266,16 +274,15 @@ class AppointmentStatusScreen extends StatefulWidget {
       _AppointmentStatusScreenState();
 }
 
-class _AppointmentStatusScreenState
-    extends State<AppointmentStatusScreen> {
+class _AppointmentStatusScreenState extends State<AppointmentStatusScreen> {
   List appointments = [];
   bool isLoading = true;
 
   Future<void> fetchAppointments() async {
     try {
       final response = await http.get(
-        Uri.parse('http://YOUR_API_BASE_URL/appointments'),
-      );
+        Uri.parse('http://192.168.13.251:5000/appointments'),
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         appointments = jsonDecode(response.body);
@@ -283,11 +290,11 @@ class _AppointmentStatusScreenState
         throw Exception('Failed to load');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      AlarmService.show('Error: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) { // 確保 Widget 還在畫面上
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -296,10 +303,10 @@ class _AppointmentStatusScreenState
       case 'approved':
         return Colors.green.shade300; // 薄緑
       case 'rejected':
-        return Colors.red;             // 赤
+        return Colors.red; // 赤
       case 'pending':
       default:
-        return Colors.black;           // 保留
+        return Colors.black; // 保留
     }
   }
 
@@ -320,36 +327,36 @@ class _AppointmentStatusScreenState
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : appointments.isEmpty
-              ? const Center(child: Text('No appointments found'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: appointments.length,
-                  itemBuilder: (context, index) {
-                    final appt = appointments[index];
+          ? const Center(child: Text('No appointments found'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: appointments.length,
+              itemBuilder: (context, index) {
+                final appt = appointments[index];
 
-                    return Card(
-                      elevation: 3,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                return Card(
+                  elevation: 3,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListTile(
+                    title: Text(
+                      '${appt['date']}  ${appt['time']}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(appt['reason'] ?? ''),
+                    trailing: Text(
+                      (appt['status'] ?? '').toUpperCase(),
+                      style: TextStyle(
+                        color: statusColor(appt['status'] ?? 'pending'),
+                        fontWeight: FontWeight.bold,
                       ),
-                      child: ListTile(
-                        title: Text(
-                          '${appt['date']}  ${appt['time']}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(appt['reason'] ?? ''),
-                        trailing: Text(
-                          (appt['status'] ?? '').toUpperCase(),
-                          style: TextStyle(
-                            color: statusColor(appt['status'] ?? 'pending'),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

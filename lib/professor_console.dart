@@ -3,6 +3,7 @@ import 'dart:async';
 import './tool.dart';
 import './setting_screen.dart';
 
+Timer? timer;
 
 double _ensureDouble(dynamic value) {
   if (value == null) return 0.0;
@@ -200,9 +201,11 @@ class ControlSection extends StatefulWidget {
 class _ControlSectionState extends State<ControlSection> {
   // 設備狀態變數
   double _lightValue = 50.0;
+  bool _lightOn = true;
   double _fanValue = 0;
   double _tempValue = 26.0;
   double _acOn = 0;
+  String _presence = "busy";
 
   // 溫度輸入框的控制項
   final TextEditingController _tempController = TextEditingController(text: "26.0");
@@ -231,15 +234,15 @@ class _ControlSectionState extends State<ControlSection> {
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
-              child: SegmentedButton<double>(
+              child: SegmentedButton<bool>(
                 segments: const [
-                  ButtonSegment(value: 0, label: Text('off')),
-                  ButtonSegment(value: 1, label: Text('on')),
+                  ButtonSegment(value: false, label: Text('off')),
+                  ButtonSegment(value: true, label: Text('on')),
                 ],
-                selected: {_acOn},
+                selected: {_lightOn},
                 onSelectionChanged: (newSelection) {
-                  setState(() => _acOn = newSelection.first);
-                  HttpRequest.send("light_switch", _acOn);
+                  setState(() => _lightOn = newSelection.first);
+                  HttpRequest.send("light_switch", _lightOn);
                 },
               ),
             ),
@@ -308,6 +311,7 @@ class _ControlSectionState extends State<ControlSection> {
                 ),
               ],
             ),
+
             // --- 空調模式 (開關) ---
             const Text("Air Conditioner", style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
@@ -322,6 +326,25 @@ class _ControlSectionState extends State<ControlSection> {
                 onSelectionChanged: (newSelection) {
                   setState(() => _acOn = newSelection.first);
                   HttpRequest.send("ac", _acOn);
+                },
+              ),
+            ),
+
+            // --- 狀態控制 ---
+            const Text("Presence", style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: "busy", label: Text('busy')),
+                  ButtonSegment(value: "absent", label: Text('absent')),
+                  ButtonSegment(value: "available", label: Text('available')),
+                ],
+                selected: {_presence},
+                onSelectionChanged: (newSelection) {
+                  setState(() => _presence = newSelection.first);
+                  HttpRequest.send("presence", _presence);
                 },
               ),
             ),
@@ -359,110 +382,96 @@ class _ControlSectionState extends State<ControlSection> {
   }
 }//       ControlSection
 
-class RoomStatusCard extends StatefulWidget {
-  const RoomStatusCard({super.key});
+class ManageAppointments extends StatefulWidget {
+  const ManageAppointments({super.key});
 
   @override
-  State<RoomStatusCard> createState() => _RoomStatusCardState();
+  State<ManageAppointments> createState() => _ManageAppointmentsState();
 }
 
-class _RoomStatusCardState extends State<RoomStatusCard> {
-  bool isDNDMode = false; // 勿擾模式狀態
-  bool isRoomEmpty = true; // 模擬房間是否無人
+class _ManageAppointmentsState extends State<ManageAppointments> {
+  List<dynamic> _appointments = [];
+  bool _isLoading = true;
 
-  // 模擬的門鈴與紀錄數據
-  final List<String> _records = [
-    "10:30 - Door Bell Ring",
-    "09:15 - Room into occupied",
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
 
-  // 顯示詳細紀錄的底部彈窗
-  void _showDetails() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min, // 根據內容自動調整高度
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("State Record", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              const Text("Room Empty for ${1}h ${15}m", style: TextStyle(color: Colors.blue)),
-              const SizedBox(height: 10),
-              const Text("Door Bell Record：", style: TextStyle(fontWeight: FontWeight.bold)),
-              ..._records.map((msg) => ListTile(
-                leading: const Icon(Icons.notifications_active, size: 20),
-                title: Text(msg, style: const TextStyle(fontSize: 14)),
-              )),
-              const SizedBox(height: 20),
-            ],
-          ),
-        );
-      },
-    );
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    final data = await HttpRequest.getAppointments();
+    setState(() {
+      _appointments = data;
+      _isLoading = false;
+    });
+  }
+
+  void _handleAction(int id, String status) async {
+    await HttpRequest.respondAppointment(id, status);
+    NoticeService.show("Appointment $status");
+    _fetchData(); // 重新整理清單
   }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: [
-          // 點選此 ListTile 會彈出詳細資訊
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isRoomEmpty ? Colors.grey : Colors.green,
-              child: Icon(isRoomEmpty ? Icons.person_off : Icons.person, color: Colors.white),
-            ),
-            title: Text(isRoomEmpty ? "The office is unoccupied" : "The office is occupied"),
-            subtitle: const Text("View vacant time & doorbell logs"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: _showDetails,
-          ),
-
-          const Divider(height: 1),
-
-          // 按鈕區
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // 一鍵離開按鈕
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // 這裡未來可以串接 Flask 關閉所有燈光與冷氣
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("One-click exit has been executed: Turn off all devices.")),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Manage Appointments"),
+        actions: [IconButton(onPressed: _fetchData, icon: const Icon(Icons.refresh))],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _appointments.isEmpty
+              ? const Center(child: Text("No pending appointments"))
+              : ListView.builder(
+                  itemCount: _appointments.length,
+                  itemBuilder: (context, index) {
+                    final item = _appointments[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: ExpansionTile(
+                        leading: const Icon(Icons.calendar_today),
+                        title: Text("${item['name']} (${item['student_id']})"),
+                        subtitle: Text("Time: ${item['date']} ${item['time']}"),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Reason: ${item['reason']}"),
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    ElevatedButton.icon(
+                                      onPressed: () => _handleAction(item['id'], "rejected"),
+                                      icon: const Icon(Icons.close),
+                                      label: const Text("Reject"),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ElevatedButton.icon(
+                                      onPressed: () => _handleAction(item['id'], "approved"),
+                                      icon: const Icon(Icons.check),
+                                      label: const Text("Approve"),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade100),
+                                    ),
+                                  ],
+                                )
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
                     );
                   },
-                  icon: const Icon(Icons.exit_to_app),
-                  label: const Text("Exit Room"),
                 ),
-
-                // 勿擾模式切換
-                FilterChip(
-                  label: const Text("Do Not Disturb"),
-                  selected: isDNDMode,
-                  onSelected: (val) {
-                    setState(() => isDNDMode = val);
-                  },
-                  selectedColor: Colors.red.shade100,
-                  checkmarkColor: Colors.red,
-                ),
-              ],
-            ),
-          )
-        ],
-      ),
     );
   }
-}//     RoomStatusCard
+}// ManageAppointments
 
 class ProfessorConsole extends StatefulWidget {
   const ProfessorConsole({super.key});
@@ -477,6 +486,21 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   double _humidity = 100;
   double _light = 100;
   double _coLevel = 50;
+  int _pendingCount = 0; // 預設為 0
+
+  Future<void> _updatePendingCount() async {
+    // 呼叫我們先前寫在 HttpRequest 的 getAppointments
+    final List<dynamic> appointments = await HttpRequest.getAppointments();
+
+    // 篩選出狀態為 "pending" 的項目數量
+    final count = appointments.where((item) => item['status'] == 'pending').length;
+
+    if (mounted) {
+      setState(() {
+        _pendingCount = count;
+      });
+    }
+  }
 
   // 2. 抓取 Flask 數據的函式
   Future<void> _refreshData() async {
@@ -499,13 +523,23 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
   @override
   void initState() {
     super.initState();
-    _refreshData(); // 初始抓取一次
-    Timer.periodic(const Duration(seconds: 5), (timer) => _refreshData());
+    _refreshData(); // 初始抓取一次// 將計時器指定給變數
+
+    timer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (mounted) {
+        _refreshData();
+        _updatePendingCount(); // 同步更新預約數量
+      }
+    });
+  }
+  @override
+  void dispose() {
+    timer?.cancel(); // 頁面銷毀時，確保計時器停止
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    AlarmService.init(context); // 註冊 context 給全域使用
     return Scaffold(
       appBar: AppBar(title: const Text("Office Control Panel")),
       body: Stack(
@@ -531,15 +565,22 @@ class _ProfessorConsoleState extends State<ProfessorConsole> {
                 // b. Control Section
                 const ControlSection(title: "Control Panel"),
 
-                // c. Room Status
-                const RoomStatusCard(),
 
                 // d. Scheduling and Settings
                 ListTile(
                   leading: const Icon(Icons.calendar_month),
-                  title: const Text("ManageAppointments"),
-                  trailing: const Badge(label: Text("3")), // message hadn't read
-                  onTap: () {/* into Scheduling page */},
+                  title: const Text("Manage Appointments"),
+                  trailing: _pendingCount > 0
+                      ? Badge(label: Text("$_pendingCount"))
+                      : null, // message hadn't read
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ManageAppointments()),
+                    );/* into Scheduling page */
+                    // 回來後手動刷新一次數量，確保 Badge 消失或更新
+                    _updatePendingCount();
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.settings),

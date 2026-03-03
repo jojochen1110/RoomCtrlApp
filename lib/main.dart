@@ -18,7 +18,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passController = TextEditingController();
 
   void _login() {
-    if (_userController.text == 'abc' && _passController.text == '1234') {
+    if (_userController.text == UserSession.getAccount() && _passController.text == UserSession.getPassword()) {
       // 登入成功：跳轉並移除登入頁
       Navigator.pushReplacement(
         context,
@@ -77,8 +77,10 @@ class _LoginPageState extends State<LoginPage> {
             ),
 
             const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
 
-            //  Student Home リンク
+            //  Student Page リンク
             GestureDetector(
               onTap: () {
                 Navigator.push(
@@ -89,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
                 );
               },
               child: const Text(
-                "Student Home",
+                "Student Page",
                 style: TextStyle(
                   color: Colors.blue,
                   decoration: TextDecoration.underline,
@@ -109,6 +111,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    AlarmService.init(context); // 註冊 context 給全域使用
     return MaterialApp(
       title: 'Smart Office',
       theme: ThemeData(

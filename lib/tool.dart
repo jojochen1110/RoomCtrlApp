@@ -120,6 +120,117 @@ class _AlarmVisual extends StatelessWidget {
   }
 }
 //about alarm
+//notice
+
+class NoticeService {
+  static final List<_NoticeEntry> _activeNotices = [];
+  static BuildContext? _context;
+
+  static void init(BuildContext context) => _context = context;
+
+  static void show(String message) {
+    if (_context == null) return;
+    if (_activeNotices.any((e) => e.message == message)) return;
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => _NoticeVisual(
+        message: message,
+        onDismiss: () => _remove(message),
+      ),
+    );
+
+    _activeNotices.insert(0, _NoticeEntry(message, entry));
+    Overlay.of(_context!).insert(entry);
+
+    _refreshAll();
+    // 通知通常停留時間可以短一點，比如 3 秒
+    Future.delayed(const Duration(seconds: 3), () => _remove(message));
+  }
+
+  static void _remove(String message) {
+    final index = _activeNotices.indexWhere((e) => e.message == message);
+    if (index != -1) {
+      _activeNotices[index].entry.remove();
+      _activeNotices.removeAt(index);
+      _refreshAll();
+    }
+  }
+
+  static void _refreshAll() {
+    for (var notice in _activeNotices) {
+      notice.entry.markNeedsBuild();
+    }
+  }
+}
+
+class _NoticeEntry {
+  final String message;
+  final OverlayEntry entry;
+  _NoticeEntry(this.message, this.entry);
+}
+class _NoticeVisual extends StatelessWidget {
+  final String message;
+  final VoidCallback onDismiss;
+
+  const _NoticeVisual({required this.message, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final index = NoticeService._activeNotices.indexWhere((e) => e.message == message);
+    if (index == -1) return const SizedBox();
+
+    // 這裡我們稍微偏移一點，避免跟 Alarm 重疊
+    // 或者你可以把 Notice 放在底部 (bottomPosition)
+    double topPosition = 85.0 + (index * 58.0);
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      top: topPosition,
+      left: 15,
+      right: 15,
+      child: Material(
+        color: Colors.transparent,
+        child: TweenAnimationBuilder<Offset>(
+          duration: const Duration(milliseconds: 400),
+          tween: Tween(begin: const Offset(0, -1), end: const Offset(0, 0)),
+          curve: Curves.easeOutBack,
+          builder: (context, offset, child) {
+            return FractionalTranslation(
+              translation: offset,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.shade800.withOpacity(0.9), // 深色質感的背景
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)],
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.lightBlueAccent, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: onDismiss,
+                      child: Icon(Icons.close, color: Colors.white.withOpacity(0.7), size: 18),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+//notice
 
 //http request
 class HttpRequest {
@@ -178,6 +289,28 @@ class HttpRequest {
     } catch (e) {
       AlarmService.show("Network error: $e");
       return null;
+    }
+  }
+  static Future<List<dynamic>> getAppointments() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/appointments'));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body); // 假設回傳的是預約列表
+      }
+    } catch (e) {
+      AlarmService.show("Fetch error: $e");
+    }
+    return [];
+  }
+  static Future<void> respondAppointment(int id, String status) async {
+    try {
+      await http.post(
+        Uri.parse('$baseUrl/appointments/respond'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"id": id, "status": status}),
+      );
+    } catch (e) {
+      AlarmService.show("Respond error: $e");
     }
   }
 }
